@@ -1,0 +1,204 @@
+// WordAnalyzer.java - Анализатор частоты слов на Java (CLI)
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.regex.*;
+import java.util.stream.Collectors;
+
+public class WordAnalyzer {
+    private static final Map<String, Set<String>> STOP_WORDS = new HashMap<>();
+
+    static {
+        Set<String> ru = new HashSet<>(Arrays.asList(
+            "и","в","во","не","что","он","на","я","с","со","как","а","то","все","она","так","его","но","да","ты","к","у","же","вы","за","бы","по","только","ее","мне","было","вот","от","меня","еще","нет","о","из","ему","теперь","когда","даже","ну","вдруг","ли","если","уже","или","ни","быть","был","него","до","вас","нибудь","опять","уж","вам","ведь","там","потом","себя","ничего","ей","может","они","тут","где","есть","надо","ней","для","мы","тебя","их","чем","была","сам","чтоб","без","будто","чего","раз","тоже","себе","под","будет","ж","тогда","кто","этот","того","потому","этого","какой","совсем","ним","здесь","этом","один","почти","мой","тем","чтобы","нее","сейчас","были","куда","зачем","всех","можно","при","наконец","два","об","другой","хоть","после","над","больше","тот","через","эти","нас","про","всего","них","какая","много","разве","три","эту","моя","впрочем","хорошо","свою","этой","перед","иногда","лучше","чуть","том","нельзя","такой","им","более","всегда","конечно","всю","между","также","куда-то"
+        ));
+        Set<String> en = new HashSet<>(Arrays.asList(
+            "the","be","to","of","and","a","in","that","have","i","it","for","not","on","with","he","as","you","do","at","this","but","his","by","from","they","we","say","her","she","or","an","will","my","one","all","would","there","their","what","so","up","out","if","about","who","get","which","go","me","when","make","can","like","time","no","just","him","know","take","people","into","year","your","good","some","could","them","see","other","than","then","now","look","only","come","its","over","think","also","back","after","use","two","how","our","work","first","well","way","even","new","want","because","any","these","give","day","most","us"
+        ));
+        STOP_WORDS.put("ru", ru);
+        STOP_WORDS.put("en", en);
+    }
+
+    static class WordCount implements Comparable<WordCount> {
+        String word;
+        int count;
+        WordCount(String word, int count) { this.word = word; this.count = count; }
+        public int compareTo(WordCount other) {
+            if (this.count != other.count) return other.count - this.count;
+            return this.word.compareTo(other.word);
+        }
+    }
+
+    public static String cleanText(String text) {
+        text = text.toLowerCase();
+        text = text.replaceAll("[^\\w\\s]", " ");
+        text = text.replaceAll("\\d+", "");
+        text = text.replaceAll("\\s+", " ").trim();
+        return text;
+    }
+
+    public static List<WordCount> analyzeText(String text, String lang, boolean removeStopwords) {
+        String cleaned = cleanText(text);
+        String[] wordsArray = cleaned.split("\\s+");
+        List<String> words = Arrays.asList(wordsArray);
+        int totalWords = words.size();
+        if (removeStopwords) {
+            Set<String> stop = STOP_WORDS.getOrDefault(lang, STOP_WORDS.get("ru"));
+            words = words.stream().filter(w -> !stop.contains(w) && w.length() > 1).collect(Collectors.toList());
+        }
+        Map<String, Integer> counter = new HashMap<>();
+        for (String w : words) {
+            counter.put(w, counter.getOrDefault(w, 0) + 1);
+        }
+        List<WordCount> result = new ArrayList<>();
+        for (Map.Entry<String, Integer> e : counter.entrySet()) {
+            result.add(new WordCount(e.getKey(), e.getValue()));
+        }
+        Collections.sort(result);
+        return result;
+    }
+
+    public static void printTable(List<WordCount> pairs, int topN) {
+        if (pairs.isEmpty()) {
+            System.out.println("Нет слов для отображения.");
+            return;
+        }
+        int top = Math.min(topN, pairs.size());
+        int maxCount = pairs.get(0).count;
+        System.out.printf("\n%50s\n", "Топ-" + top + " самых частотных слов");
+        System.out.println("-".repeat(50));
+        for (int i = 0; i < top; i++) {
+            WordCount p = pairs.get(i);
+            int barLen = (int)((double)p.count / maxCount * 30);
+            String bar = "█".repeat(barLen) + "░".repeat(30 - barLen);
+            System.out.printf("%2d. %-15s %4d  %s\n", i+1, p.word, p.count, bar);
+        }
+        System.out.println("-".repeat(50));
+    }
+
+    public static void exportCSV(List<WordCount> pairs, String filename) throws IOException {
+        try (PrintWriter pw = new PrintWriter(filename)) {
+            pw.println("Слово,Частота");
+            for (WordCount p : pairs) {
+                pw.printf("%s,%d\n", p.word, p.count);
+            }
+        }
+    }
+
+    public static void exportJSON(List<WordCount> pairs, String filename) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\n");
+        for (int i = 0; i < pairs.size(); i++) {
+            WordCount p = pairs.get(i);
+            sb.append("  \"").append(p.word).append("\": ").append(p.count);
+            if (i < pairs.size() - 1) sb.append(",");
+            sb.append("\n");
+        }
+        sb.append("}");
+        Files.write(Paths.get(filename), sb.toString().getBytes());
+    }
+
+    public static void interactive() throws IOException {
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("📊 АНАЛИЗАТОР ЧАСТОТЫ СЛОВ");
+        System.out.print("Язык (ru/en, по умолчанию ru): ");
+        String lang = scanner.nextLine().trim();
+        if (lang.isEmpty()) lang = "ru";
+        System.out.print("Игнорировать стоп-слова? (y/n, по умолчанию y): ");
+        String stopInput = scanner.nextLine().trim();
+        boolean removeStop = !stopInput.equals("n");
+        while (true) {
+            System.out.println("\nВведите текст (или 'file: путь' для файла, 'exit' для выхода):");
+            System.out.print("> ");
+            String input = scanner.nextLine().trim();
+            if (input.equals("exit")) break;
+            String text;
+            if (input.startsWith("file:")) {
+                String path = input.substring(5).trim();
+                try {
+                    text = new String(Files.readAllBytes(Paths.get(path)));
+                    System.out.printf("Файл '%s' загружен.\n", path);
+                } catch (IOException e) {
+                    System.out.println("Ошибка чтения файла: " + e.getMessage());
+                    continue;
+                }
+            } else {
+                text = input;
+            }
+            List<WordCount> pairs = analyzeText(text, lang, removeStop);
+            int total = text.split("\\s+").length;
+            System.out.printf("\nВсего слов: %d\n", total);
+            System.out.printf("Уникальных слов: %d\n", pairs.size());
+            printTable(pairs, 10);
+            System.out.println("\nДополнительные действия:");
+            System.out.println("1. Показать все слова");
+            System.out.println("2. Экспорт в CSV");
+            System.out.println("3. Экспорт в JSON");
+            System.out.println("4. Анализ другого текста");
+            System.out.println("0. Выход");
+            System.out.print("Ваш выбор: ");
+            String action = scanner.nextLine().trim();
+            if (action.equals("0")) break;
+            else if (action.equals("1")) {
+                for (WordCount p : pairs) System.out.printf("%s: %d\n", p.word, p.count);
+            } else if (action.equals("2")) {
+                System.out.print("Имя CSV файла (по умолчанию freq.csv): ");
+                String filename = scanner.nextLine().trim();
+                if (filename.isEmpty()) filename = "freq.csv";
+                try {
+                    exportCSV(pairs, filename);
+                    System.out.println("Экспортировано в " + filename);
+                } catch (IOException e) {
+                    System.out.println("Ошибка: " + e.getMessage());
+                }
+            } else if (action.equals("3")) {
+                System.out.print("Имя JSON файла (по умолчанию freq.json): ");
+                String filename = scanner.nextLine().trim();
+                if (filename.isEmpty()) filename = "freq.json";
+                try {
+                    exportJSON(pairs, filename);
+                    System.out.println("Экспортировано в " + filename);
+                } catch (IOException e) {
+                    System.out.println("Ошибка: " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    public static void main(String[] args) throws IOException {
+        if (args.length > 0) {
+            String filePath = null, text = null, lang = "ru", exportCsv = null, exportJson = null;
+            boolean noStop = false, all = false;
+            int top = 10;
+            for (int i = 0; i < args.length; i++) {
+                if (args[i].equals("--file")) filePath = args[++i];
+                else if (args[i].equals("--text")) text = args[++i];
+                else if (args[i].equals("--lang")) lang = args[++i];
+                else if (args[i].equals("--no-stop")) noStop = true;
+                else if (args[i].equals("--top")) top = Integer.parseInt(args[++i]);
+                else if (args[i].equals("--export-csv")) exportCsv = args[++i];
+                else if (args[i].equals("--export-json")) exportJson = args[++i];
+                else if (args[i].equals("--all")) all = true;
+            }
+            String content;
+            if (filePath != null) {
+                content = new String(Files.readAllBytes(Paths.get(filePath)));
+            } else if (text != null) {
+                content = text;
+            } else {
+                System.out.println("Укажите --file или --text");
+                return;
+            }
+            List<WordCount> pairs = analyzeText(content, lang, !noStop);
+            int total = content.split("\\s+").length;
+            System.out.printf("Всего слов: %d\n", total);
+            System.out.printf("Уникальных слов: %d\n", pairs.size());
+            printTable(pairs, top);
+            if (all) for (WordCount p : pairs) System.out.printf("%s: %d\n", p.word, p.count);
+            if (exportCsv != null) { exportCSV(pairs, exportCsv); System.out.println("Экспортировано в " + exportCsv); }
+            if (exportJson != null) { exportJSON(pairs, exportJson); System.out.println("Экспортировано в " + exportJson); }
+        } else {
+            interactive();
+        }
+    }
+}
